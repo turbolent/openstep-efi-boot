@@ -1,3 +1,4 @@
+#include "loader_diagnostics.h"
 /* Console/diagnostic backend for boot-2's reused libsaio/libsa sources.
  * disk.c and sys.c call printf/error/verbose/message/getc/putchar/
  * spinActivityIndicator/sleep; this file supplies them over the EFI Simple
@@ -14,6 +15,8 @@
 
 /* efi_splash.c: the console window, or the buffer while the panel is up. */
 extern void efi_screen_putc(int c);
+extern int openstep_graphics_active(void);
+extern void openstep_fb_putc(int c);
 
 /* libsa/sprintf.c's va_list formatter into a bounded buffer. */
 extern int slvprintf(char *buffer, int len, const char *fmt, va_list arg);
@@ -33,14 +36,17 @@ void putchar(int c)
     CHAR16 s[3];
     int i = 0;
 
-    if (efi_gfx_active()) {
-        /* The card is in VGA mode 0x12 now and ConOut would draw over it.
+    if (efi_gfx_active() || openstep_graphics_active()) {
+        /* ConOut could draw over or change the preserved graphics mode.
          * OVMF mirrors ConOut to COM1, so keep the serial log going by
          * writing COM1 directly. */
         if (c == '\n')
             com1_putc('\r');
         com1_putc(c);
-        efi_screen_putc(c);
+        if (openstep_graphics_active())
+            openstep_fb_putc(c);
+        else
+            efi_screen_putc(c);
         return;
     }
 
@@ -94,7 +100,7 @@ int error(const char *fmt, ...)
     return 0;
 }
 
-int gVerboseMode = 1;
+int gVerboseMode = OPENSTEP_DIAGNOSTICS;
 
 int verbose(const char *fmt, ...)
 {

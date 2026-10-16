@@ -1,4 +1,4 @@
-/* Minimal IA32 UEFI declarations.  Only what the loader touches. */
+/* Minimal EFI declarations. OPENSTEP_EFI64 selects native 64-bit pointers. */
 #ifndef _BOOTEFI_EFI_H_
 #define _BOOTEFI_EFI_H_
 
@@ -7,7 +7,11 @@ typedef unsigned short      UINT16;
 typedef unsigned int        UINT32;
 typedef unsigned long long  UINT64;
 typedef int                 INT32;
-typedef UINT32              UINTN;      /* IA32: pointer-sized */
+#ifdef OPENSTEP_EFI64
+typedef UINT64              UINTN;
+#else
+typedef UINT32              UINTN;
+#endif
 typedef UINT16              CHAR16;
 typedef UINTN               EFI_STATUS;
 typedef void *              EFI_HANDLE;
@@ -24,7 +28,12 @@ static __inline__ int EFI_ERROR(EFI_STATUS s)
     return ((INT32)s) < 0 || s != EFI_SUCCESS;
 }
 
-#define EFI_BUFFER_TOO_SMALL    ((EFI_STATUS)0x80000005)
+#define EFIERR(n) (((EFI_STATUS)1 << (sizeof(EFI_STATUS) * 8 - 1)) | (n))
+#define EFI_INVALID_PARAMETER   EFIERR(2)
+#define EFI_BUFFER_TOO_SMALL    EFIERR(5)
+#define EFI_UNSUPPORTED         EFIERR(3)
+#define EFI_OUT_OF_RESOURCES    EFIERR(9)
+#define EFI_NOT_FOUND           EFIERR(14)
 
 typedef struct { UINT32 d1; UINT16 d2, d3; UINT8 d4[8]; } EFI_GUID;
 
@@ -64,6 +73,8 @@ typedef struct {
     UINT64                  NumberOfPages;
     UINT64                  Attribute;
 } EFI_MEMORY_DESCRIPTOR;
+
+#define EFI_MEMORY_RUNTIME 0x8000000000000000ULL
 
 /* Text protocols */
 typedef struct _EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL

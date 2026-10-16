@@ -8,12 +8,24 @@ efi_handoff:
         movl    4(%esp), %ecx           /* kernel entry */
 
         cli
+        cld                           /* OPENSTEP string operations run forward */
 
         /* Paging off.  UEFI permits identity-mapped paging on IA32; the
          * kernel requires it disabled. */
         movl    %cr0, %eax
         andl    $0x7FFFFFFF, %eax
         movl    %eax, %cr0
+
+#ifdef OPENSTEP_EFI64_CORE
+        /* We arrived in compatibility mode. With paging off, clear LME
+         * and NXE before OPENSTEP later enables its non-PAE page tables. */
+        movl    %ecx, %edi
+        movl    $0xc0000080, %ecx
+        rdmsr
+        andl    $0xfffff6ff, %eax
+        wrmsr
+        movl    %edi, %ecx
+#endif
 
         /* UEFI firmware runs IA32 with CR4.PAE (and other firmware-era
          * bits: MCE, OSFXSR, OSXMMEXCPT) set.  This 1999 kernel predates

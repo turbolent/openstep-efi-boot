@@ -47,8 +47,7 @@
 #define DRIVER_PRIVATE
 
 #import "sys/types.h"
-#import <bsd/dev/disk.h>
-#import <bsd/dev/i386/disk.h>
+#import "openstep_disk.h"
 #import "libsaio.h"
 #import "memory.h"
 

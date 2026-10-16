@@ -187,6 +187,8 @@ void setMode(int mode)
 {
     int i;
 
+    if (!efi_gfx_active())
+        return;
     if (screen_mode == mode)
         return;
     if (mode == GRAPHICS_MODE) {

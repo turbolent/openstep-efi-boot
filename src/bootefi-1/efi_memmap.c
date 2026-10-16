@@ -46,7 +46,7 @@ int efi_to_e820(const void *map, UINTN size, UINTN dsize,
             return 0;
         r[n].base = (unsigned int)start;
         r[n].end = (unsigned int)end;
-        r[n].type = efi_e820_type(d->Type);
+        r[n].type = d->Attribute & EFI_MEMORY_RUNTIME ? 2 : efi_e820_type(d->Type);
         n++;
     }
 

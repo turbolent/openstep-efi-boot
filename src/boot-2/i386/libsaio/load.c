@@ -35,8 +35,9 @@
 #import "stringConstants.h"
 #import "rcz.h"
 
-#import <ufs/ufs/dir.h>
+#import <ufs/fsdir.h>
 #import <mach-o/fat.h>
+#include "efi_workspace.h"
 
 #if 1
 int ram_debug_sarld=0;
@@ -245,6 +246,12 @@ loadmacho(
 
 			addr = (scp->vmaddr & 0x3fffffff) + (int)*raddr;
 			if (scp->filesize) {
+			    if (scp->filesize > scp->vmsize ||
+			        !efi_load_range_valid(addr, scp->vmsize)) {
+			        error("Mach-O segment exceeds reserved workspace: %x size %x\n",
+			              addr, scp->vmsize);
+			        goto shread;
+			    }
 			    // Is this an OK assumption?
 			    // if the filesize is zero, it doesn't
 			    // take up any virtual space...

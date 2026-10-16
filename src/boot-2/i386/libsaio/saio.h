@@ -37,17 +37,13 @@
  *
  *	@(#)saio.h	7.1 (Berkeley) 6/5/86
  */
-#import <sys/types.h>
-#import <sys/param.h>
-#import <sys/vnode.h>
-#import <ufs/ufs/quota.h>
-#import <ufs/ufs/inode.h>
+#import "openstep_disk.h"
 
 // Io block: includes an inode, cells for the use of seek, etc,
 // and a buffer.
 struct	iob {
 	int	i_flgs;		/* see F_ below */
-	struct	inode i_ino;	/* inode, if file */
+	struct	boot_inode i_ino;	/* inode, if file */
 	daddr_t	i_boff;		/* block offset on device */
 	unsigned int	i_offset;	/* seek offset in file */
 	daddr_t	i_bn;		/* 1st block # of next read */

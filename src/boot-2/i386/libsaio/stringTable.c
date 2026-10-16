@@ -30,7 +30,7 @@
 #import "kernBootStruct.h"
 #import "stringConstants.h"
 #import "drivers.h"
-#import <driverkit/configTablePrivate.h>
+#import "openstep_config.h"
 
 extern KERNBOOTSTRUCT *kernBootStruct;
 extern char *Language;

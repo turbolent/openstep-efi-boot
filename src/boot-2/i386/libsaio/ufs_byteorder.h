@@ -32,13 +32,7 @@
  * 8 Jul 1992 Brian Pinkerton at NeXT
  *      Created.
  */
-#import <bsd/sys/disktab.h>
-#import <bsd/sys/vnode.h>
-#import <bsd/sys/buf.h>
-#import <bsd/dev/disk.h>
-#import <bsd/ufs/ufs/quota.h>
-#import <bsd/ufs/ufs/inode.h>
-#import <bsd/ufs/ffs/fs.h>
+#import "openstep_disk.h"
 
 void byte_swap_ints(int *array, int count);
 void byte_swap_shorts(short *array, int count);
@@ -48,6 +42,6 @@ void byte_swap_superblock(struct fs *sb);
 void byte_swap_disklabel_in(disk_label_t *dl);
 void byte_swap_disktab_in(struct disktab *dt);
 void byte_swap_partition(struct partition *part);
-void byte_swap_dinode_in(struct dinode *di);
+void byte_swap_dinode_in(struct boot_dinode *di);
 void byte_swap_dir_block_in(char *addr, int count);
 

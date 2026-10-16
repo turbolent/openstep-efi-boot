@@ -23,7 +23,6 @@
  */
 /* Exported API for standalone library */
 #import <mach-o/loader.h>
-#import <mach/mach.h>
 #import <stdarg.h>
 #import <stddef.h>
 
@@ -75,30 +74,6 @@ extern unsigned long strtoul(
     register int base
 );
 extern int atoi(const char *str);
-
-/* Mach */
-extern port_t task_self_;
-extern kern_return_t vm_allocate(
-    vm_task_t target_task,
-    vm_address_t *address,
-    vm_size_t size,
-    boolean_t anywhere
-);
-extern kern_return_t vm_deallocate(
-    vm_task_t target_task,
-    vm_address_t address,
-    vm_size_t size
-);
-extern kern_return_t host_info(
-    host_t host,
-    int flavor,
-    host_info_t host_info,
-    unsigned int *host_info_count
-);
-extern vm_size_t vm_page_size;
-extern host_t host_self(void);
-extern int getpagesize(void);
-extern char *mach_error_string(int errnum);
 
 /* Malloc */
 extern void malloc_init(char *start, int size, int nodes);

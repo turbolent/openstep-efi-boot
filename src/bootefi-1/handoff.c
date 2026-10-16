@@ -1,7 +1,9 @@
+#include "loader_diagnostics.h"
 #include "efi.h"
 #include "load.h"	/* printf(), via libsaio.h */
 #include "kernBootStruct.h"	/* TEXT_MODE */
 #include "efi_memmap.h"
+#include "efi_map.h"
 
 /* boot2's GDT (src/boot-2/i386/libsaio/table.c), used verbatim: selector
  * 0x20 is flat data, 0x28 flat code.  table.c defines struct seg_desc
@@ -19,6 +21,10 @@ struct seg_desc {
 extern struct seg_desc Gdt[6];
 
 extern void efi_handoff(unsigned int entry);
+extern void openstep_prepare_interrupts(void);
+extern void openstep_prepare_graphics(void);
+extern int openstep_graphics_active(void);
+extern void openstep_fb_status(const char *, unsigned int);
 
 /* efi_vga.c: resets the VGA card to standard text mode 3 (register
  * programming + font reload + buffer clear) so the kernel's own VGA
@@ -34,85 +40,46 @@ struct gdt_descriptor {
     unsigned long  base;
 } __attribute__((packed));
 
+_Static_assert(sizeof(struct gdt_descriptor) == 6 &&
+               __builtin_offsetof(struct gdt_descriptor, base) == 2,
+               "GDT descriptor must match handoff.S and the x86 LGDT operand");
+
 extern struct gdt_descriptor gdt_desc;
 
 void efi_exit_and_start(unsigned int entry)
 {
-    UINTN size = 0, key, dsize = sizeof(EFI_MEMORY_DESCRIPTOR);
-    UINT32 dver;
-    EFI_MEMORY_DESCRIPTOR *map = 0;
-    int tries;
-    EFI_STATUS sizing_st;
+    OPENSTEP_EFI_MAP map;
+    EFI_STATUS status;
+    int attempted, conv, ext;
 
     gdt_desc.base = (unsigned long)Gdt;
-
+    verbose("[H0] Preparing firmware framebuffer.\n");
+    openstep_prepare_graphics();
     gBS->SetWatchdogTimer(0, 0, 0, 0);
-
-    /* AllocatePool() for the map buffer itself perturbs the live memory
-     * map, so a single freshly-measured size is stale by the time the
-     * buffer is filled; efi_memory.c's efi_sizemem() hit this exact
-     * EFI_BUFFER_TOO_SMALL cycle and fixed it by growing the buffer by a
-     * fixed slack on every retry rather than re-measuring a bare minimum
-     * each time. Reused here for the same reason.
-     *
-     * dsize is pre-initialized above and the return checked below: this
-     * call's only job is to size the buffer, and it is expected to come
-     * back EFI_BUFFER_TOO_SMALL. If it returns anything else, dsize may
-     * never have been written, and size += 8 * dsize would scale off
-     * garbage -- with no diagnostics available on this side of the boot
-     * to catch it later. */
-    sizing_st = gBS->GetMemoryMap(&size, 0, &key, &dsize, &dver);
-    if (sizing_st != EFI_BUFFER_TOO_SMALL) {
-        setMode(TEXT_MODE);
-        printf("GetMemoryMap sizing call failed: %x\n", (unsigned)sizing_st);
-        for (;;)
-            ;
+    verbose("[H1] Leaving EFI boot services.\n");
+    status = efi_exit_services(&map, &attempted);
+    if (OPENSTEP_DIAGNOSTICS || status != EFI_SUCCESS)
+        openstep_fb_status("[H2] ExitBootServices result: ", (unsigned int)status);
+    if (status != EFI_SUCCESS) {
+        /* After even a failed exit, firmware may be partially shut down.
+         * In particular, ConOut and video-mode protocols are unsafe. */
+        if (!attempted)
+            printf("GetMemoryMap failed before exit: %x\n", (unsigned)status);
+        for (;;) __asm__ volatile("cli; hlt");
     }
-    for (tries = 0; tries < 8; tries++) {
-        EFI_STATUS st;
-
-        size += 8 * dsize;
-        if (map)
-            gBS->FreePool(map);
-        if (EFI_ERROR(gBS->AllocatePool(EfiLoaderData, size, (void **)&map)))
-            break;
-        st = gBS->GetMemoryMap(&size, map, &key, &dsize, &dver);
-        if (EFI_ERROR(st)) {
-            if (st != EFI_BUFFER_TOO_SMALL)
-                break;
-            continue;
-        }
-        KERNSTRUCT_ADDR->memMapCount = efi_to_e820(map, size, dsize,
+    __asm__ volatile("cli" : : : "memory");
+    /* No firmware calls from here on. Both the old scalar ABI and the
+     * optional E820 extension must describe this same final map. */
+    efi_map_limits(&map, &conv, &ext);
+    KERNSTRUCT_ADDR->convmem = conv;
+    KERNSTRUCT_ADDR->extmem = ext;
+    if (OPENSTEP_DIAGNOSTICS) openstep_fb_status("[H3] Final extended memory KiB: ", ext);
+    KERNSTRUCT_ADDR->memMapCount = efi_to_e820(map.data, map.size, map.stride,
                                 KERNSTRUCT_ADDR->memMap, BOOT_MEMMAP_MAX);
-        st = gBS->ExitBootServices(gImageHandle, key);
-        if (!EFI_ERROR(st)) {
-            /* Boot services -- and the firmware's own interrupt handlers
-             * -- are gone as of the line above, but IF and the firmware's
-             * IDT are both still live until efi_handoff's own `cli`. That
-             * `cli` runs only after efi_vga_reset_text_mode()'s several
-             * hundred VGA port writes and 8K text-buffer clear, so an
-             * interrupt landing in that window would vector into a
-             * handler whose owning code is no longer guaranteed to be
-             * mapped or valid. Disable interrupts here, immediately after
-             * ExitBootServices succeeds and before any of that runs;
-             * efi_handoff's own `cli` stays too, as a harmless no-op on
-             * this path and the sole guard on any other. */
-            __asm__ volatile("cli");
-            /* efi_gfx_init() runs first in efi_main, so the card is
-             * always in mode 0x12 by now; the kernel's console carries
-             * on from it, its text window redrawing itself, and the Boot
-             * Graphics panel must survive untouched. The reset below
-             * stays only as a fallback should that ever change. */
-            if (!efi_gfx_active())
-                efi_vga_reset_text_mode();
-            efi_handoff(entry);     /* never returns */
-        }
-        /* ExitBootServices rejected the key -- get a fresh map and retry. */
-    }
-
-    /* Only reached if ExitBootServices never succeeded. */
-    setMode(TEXT_MODE);
-    printf("ExitBootServices failed\n");
-    for (;;)
-        ;
+    if (!openstep_graphics_active() && !efi_gfx_active())
+        efi_vga_reset_text_mode();
+    openstep_prepare_interrupts();
+    if (OPENSTEP_DIAGNOSTICS) openstep_fb_status("[H4] Jumping to kernel entry: ", entry);
+    efi_handoff(entry);
+    for (;;) __asm__ volatile("cli; hlt");
 }

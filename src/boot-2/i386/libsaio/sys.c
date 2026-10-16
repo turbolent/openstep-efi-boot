@@ -55,14 +55,14 @@
  */
 
 #import <sys/param.h>
-#import <ufs/ufs/dir.h>
+#import <ufs/fsdir.h>
 #import <sys/reboot.h>
 #import <architecture/byte_order.h>
 #import "libsaio.h"
 #import "cache.h"
 #import "kernBootStruct.h"
 #import "stringConstants.h"
-#import <ufs/ffs/fs.h>
+#import <ufs/fs.h>
 #import "ufs_byteorder.h"
 
 char *gFilename;
@@ -116,13 +116,13 @@ static struct iob *iob_from_fdesc(int fdesc)
 static int
 openi(int n, struct iob *io)
 {
-	struct dinode *dp;
+	struct boot_dinode *dp;
 	int cc, i, j, n_round;
 #if ICACHE
-	struct dinode *ip;
+	struct boot_dinode *ip;
 	
 	if (icache == 0) {
-	    icache = cacheInit(ICACHE_SIZE, sizeof(struct dinode));
+	    icache = cacheInit(ICACHE_SIZE, sizeof(struct boot_dinode));
 	}
 #endif ICACHE
 	io->i_offset = 0;
@@ -137,7 +137,7 @@ openi(int n, struct iob *io)
 	} else {
 #endif ICACHE
 	    cc = devread(io);
-	    dp = (struct dinode *)io->i_buf;
+	    dp = (struct boot_dinode *)io->i_buf;
 	    n_round = (n / INOPB(io->i_ffs)) * INOPB(io->i_ffs);
 #if ICACHE
 	    /* Read multiple inodes into cache */
@@ -164,21 +164,22 @@ openi(int n, struct iob *io)
 static int
 readlink(struct iob *io, char *buf, int len)
 {
-	register struct inode *ip;
+	register struct boot_inode *ip;
 	
 	ip = &io->i_ino;
-	//if (ip->i_icflags & IC_FASTLINK) {
-	   //if (ip->i_size > len)
-		//return -1;
-	    //bcopy(ip->i_symlink, buf, ip->i_size);
-	//} else {
-	    /* read contents */
+	if (ip->i_icflags & IC_FASTLINK) {
+	    if (ip->i_size >= len || ip->i_size > sizeof(ip->i_symlink))
+		return -1;
+	    bcopy(ip->i_symlink, buf, (int)ip->i_size);
+	    buf[ip->i_size] = '\0';
+	} else {
 	    io->i_offset = 0;
 	    io->i_cc = 0;
 	    io->i_flgs |= F_FILE;
-	    if (read(io - iob, buf, len) < 0)
+	    if (ip->i_size >= len || read(io - iob, buf, (int)ip->i_size) < 0)
 		return -1;
-	//}
+	    buf[ip->i_size] = '\0';
+	}
 	return 0;
 }
 
@@ -245,10 +246,13 @@ root:
 			path = q;
 
 			/* Check for symlinks */
-			if (file->i_ino.i_mode & IFLNK) {
+			if ((file->i_ino.i_mode & IFMT) == IFLNK) {
 			    char *buf = malloc(MAXPATHLEN + 1);
-			    if (readlink(file, buf, MAXPATHLEN + 1) < 0)
-				return -1;
+			    if (readlink(file, buf, MAXPATHLEN + 1) < 0 ||
+				strlen(buf) + strlen(q) > MAXPATHLEN) {
+				free(buf);
+				ret = 0; goto out;
+			    }
 			    strcat(buf, q);
 			    strcpy(lbuf, buf);
 			    free(buf);
@@ -277,7 +281,7 @@ out:
 static daddr_t
 sbmap(struct iob *io, daddr_t bn)
 {
-	register struct inode *ip;
+	register struct boot_inode *ip;
 	int i, j, sh;
 	daddr_t nb, *bap;
 
@@ -379,7 +383,7 @@ dlook(
 )
 {
 	struct direct *dp;
-	register struct inode *ip;
+	register struct boot_inode *ip;
 	struct dirstuff dirp;
 	int len;
 
@@ -514,13 +518,20 @@ readdir(struct dirstuff *dirp)
 		    if (fs_rev_endian)
 			byte_swap_dir_block_in(io->i_buf, io->i_cc);
 #if DCACHE
-		    bcopy(io->i_buf + dirblkno * DIRBLKSIZ, bp, DIRBLKSIZ);
+		    bcopy(io->i_buf + (off / DIRBLKSIZ) * DIRBLKSIZ, bp, DIRBLKSIZ);
 		    dp = (struct direct *)(io->i_buf + off);
 #endif
 		}
 #if !DCACHE
 		dp = (struct direct *)(io->i_buf + off);
 #endif
+		/* A bad record must terminate lookup, not spin forever or
+		 * move the next lookup outside the directory cache block. */
+		if (dp->d_reclen < 8 || (dp->d_reclen & 3) ||
+		    dp->d_reclen > DIRBLKSIZ - (dirp->loc % DIRBLKSIZ)) {
+		    error("Invalid UFS directory record\n");
+		    return NULL;
+		}
 		dirp->loc += dp->d_reclen;
 
 		if (dp->d_ino != 0) return (dp);

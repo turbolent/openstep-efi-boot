@@ -28,8 +28,7 @@
 
 #import <bsd/sys/types.h>
 #import <bsd/sys/param.h>
-#import <bsd/sys/vnode.h>
-#import <ufs/ufs/dir.h>
+#import <ufs/fsdir.h>
 #import <architecture/byte_order.h>
 #import "ufs_byteorder.h"
 #import "libsaio.h"
@@ -71,24 +70,13 @@ byte_swap_shorts(short *array, int count)
 void
 byte_swap_superblock(struct fs *sb)
 {
-	u_int16_t *usptr;
-	unsigned long size;
-
-	byte_swap_ints(((int32_t *)&sb->fs_firstfield), 52);
-	byte_swap_int(sb->fs_cgrotor);
-	byte_swap_int(sb->fs_cpc);
-	byte_swap_shorts((int16_t *)sb->fs_opostbl, 16 * 8); 
-	byte_swap_ints((int32_t *)sb->fs_sparecon, 50);
-	byte_swap_ints((int32_t *)&sb->fs_contigsumsize, 3);
-	byte_swap_longlongs((u_int64_t *)&sb->fs_maxfilesize,3);
-	byte_swap_ints((int32_t *)&sb->fs_state, 6);
-
-	/* Got these magic numbers from mkfs.c in newfs */
-	if (sb->fs_nrpos != 8 || sb->fs_cpc > 16) {
-		usptr = (u_int16_t *)((u_int8_t *)(sb) + (sb)->fs_postbloff);
-		size = sb->fs_cpc * sb->fs_nrpos;
-		byte_swap_shorts(usptr,size);	/* fs_postbloff */
-	}
+    /* OPENSTEP's original superblock: 52 leading words, then the
+     * cylinder rotor, cycle count, fixed rotation table and magic. */
+    byte_swap_ints((int *)&sb->fs_link, 52);
+    byte_swap_int(sb->fs_cgrotor);
+    byte_swap_int(sb->fs_cpc);
+    byte_swap_shorts(&sb->fs_postbl[0][0], MAXCPG * NRPOS);
+    byte_swap_int(sb->fs_magic);
 }
 
 
@@ -187,43 +175,24 @@ byte_swap_partition(struct partition *part)
 
 }
 
-/* This value should correspond to the value set in the ffs_mounts */
-
-#define RESYMLNKLEN 60
-
 void
-byte_swap_dinode_in(struct dinode *di)
+byte_swap_dinode_in(struct boot_dinode *di)
 {
-	int i;
-
-	di->di_mode = NXSwapShort(di->di_mode);
-	di->di_nlink = NXSwapShort(di->di_nlink);
-#ifdef LFS
-	di->di_u.inumber = NXSwapLong(di->di_u.inumber);
-#else
-	di->di_u.oldids[0] = NXSwapShort(di->di_u.oldids[0]);
-	di->di_u.oldids[1] = NXSwapShort(di->di_u.oldids[1]);
-#endif
-	di->di_size = NXSwapLongLong(di->di_size);
-	di->di_atime = NXSwapLong(di->di_atime);
-	di->di_atimensec = NXSwapLong(di->di_atimensec);
-	di->di_mtime = NXSwapLong(di->di_mtime);
-	di->di_mtimensec = NXSwapLong(di->di_mtimensec);
-	di->di_ctime = NXSwapLong(di->di_ctime);
-	di->di_ctimensec = NXSwapLong(di->di_ctimensec);
-	if (((di->di_mode & IFMT) != IFLNK ) || (di->di_size > RESYMLNKLEN)) {
-		for (i=0; i < NDADDR; i++)	/* direct blocks */
-			di->di_db[i] = NXSwapLong(di->di_db[i]);
-		for (i=0; i < NIADDR; i++)	/* indirect blocks */
-			di->di_ib[i] = NXSwapLong(di->di_ib[i]);
-	}
-	di->di_flags = NXSwapLong(di->di_flags);
-	di->di_blocks = NXSwapLong(di->di_blocks);
-	di->di_gen = NXSwapLong(di->di_gen);
-	di->di_uid = NXSwapLong(di->di_uid);
-	di->di_gid = NXSwapLong(di->di_gid);
-	di->di_spare[0] = NXSwapLong(di->di_spare[0]);
-	di->di_spare[1] = NXSwapLong(di->di_spare[1]);
+    int i;
+    di->mode = NXSwapShort(di->mode);
+    di->nlink = NXSwapShort(di->nlink);
+    di->uid = NXSwapShort(di->uid);
+    di->gid = NXSwapShort(di->gid);
+    di->size = NXSwapLongLong(di->size);
+    byte_swap_ints(&di->atime, 6);
+    di->flags = NXSwapLong(di->flags);
+    if (!(di->flags & IC_FASTLINK)) {
+        for (i = 0; i < NDADDR; i++)
+            di->data.blocks.direct[i] = NXSwapLong(di->data.blocks.direct[i]);
+        for (i = 0; i < NIADDR; i++)
+            di->data.blocks.indirect[i] = NXSwapLong(di->data.blocks.indirect[i]);
+    }
+    byte_swap_ints((int *)&di->blocks, 6);
 }
 
 void
@@ -236,6 +205,7 @@ byte_swap_dir_block_in(char *addr, int count)
 		ep = (struct direct *) (entryoffsetinblk + addr);
 		swapBigLongToHost(ep->d_ino);
 		swapBigShortToHost(ep->d_reclen);
+		swapBigShortToHost(ep->d_namlen);
 		entryoffsetinblk += ep->d_reclen;
 		if (ep->d_reclen < 12)		/* handle garbage in dirs */
 			break;

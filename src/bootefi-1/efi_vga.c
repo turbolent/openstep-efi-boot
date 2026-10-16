@@ -318,6 +318,9 @@ static const unsigned char mode12_grey[4] = { 0, 21, 42, 63 };
 void efi_vga_set_mode12(void)
 {
     unsigned i;
+    extern void openstep_prepare_vga(void);
+
+    openstep_prepare_vga();
 
     outb(SEQ_ADDR, 0x01); outb(SEQ_DATA, mode12_seq[1]); /* screen off */
     (void)inb(INPUT_STATUS1);

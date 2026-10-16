@@ -6,6 +6,7 @@
 #include "sarld.h"	/* sa_rld_t */
 #include "efi_bootargs.h"
 #include "efi_splash_rule.h"
+#include "efi_reservations.h"
 
 EFI_SYSTEM_TABLE  *gST;
 EFI_BOOT_SERVICES *gBS;
@@ -14,11 +15,10 @@ EFI_HANDLE         gImageHandle;
 KERNBOOTSTRUCT *kernBootStruct = KERNSTRUCT_ADDR;
 
 extern int efi_disk_init(void);
-extern int efi_reserve_ranges(void);
 extern void efi_init_bootstruct(void);
 extern int efi_pci_init(void);
 extern unsigned int efi_acpi_rsdp(void);
-extern void efi_gfx_init(void);
+extern void openstep_init_graphics(void);
 
 /* efi_console.c; error() counts into it. */
 extern int errors;
@@ -104,15 +104,22 @@ efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *systab)
     gImageHandle = image;
     gST = systab;
     gBS = systab->BootServices;
-    efi_gfx_init();
+    openstep_init_graphics();
 
-    if (efi_reserve_ranges() != 0) {
-        printf("fixed-address reservation failed\n");
-        for (;;) ;
+#ifndef OPENSTEP_EFI64_CORE
+    /* EFI64 reserved these before entering the compatibility-mode core. */
+    {
+        EFI_STATUS status = efi_reserve_ranges();
+        if (EFI_ERROR(status)) {
+            efi_reservation_wait();
+            efi_release_ranges();
+            return status;
+        }
     }
+#endif
 
-    printf("RhapsodiOS UEFI loader\n");
-    printf("block devices: %d\n", efi_disk_init());
+    verbose("OPENSTEP 4.2 UEFI loader (RhapsodiOS port)\n");
+    verbose("block devices: %d\n", efi_disk_init());
 
     /* Zeroes kernBootStruct and sets convmem/extmem/numIDEs/bootString;
      * numIDEs must be non-zero before the first hd() open() below, or
@@ -122,31 +129,31 @@ efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *systab)
     /* After efi_init_bootstruct() has zeroed kernBootStruct, and before the
      * kernel reads pciInfo out of it.  Without this the kernel's PCI bus
      * driver decides there is no PCI bus and frees itself; see efi_pci.c. */
-    printf("pci devices: %d\n", efi_pci_init());
+    verbose("pci devices: %d\n", efi_pci_init());
 
-    if (load_kernel("hd(0,a)/mach_kernel") != 0)
-        for (;;) ;
+    /* Select the firmware boot disk before reading its System table. The
+     * installer keeps its boot kernel separate from the installed payload. */
+    switchdev(DEV_HD);
+    verbose("loadSystemConfig: %d\n", loadSystemConfig(0, 0));
+    {
+        char *kernelPath = newStringForKey("Kernel");
+        if (kernelPath == 0 || kernelPath[0] == '\0')
+            kernelPath = "/mach_kernel";
+        verbose("Loading kernel %s\n", kernelPath);
+        if (load_kernel(kernelPath) != 0)
+            for (;;) ;
+    }
 
-    printf("kaddr %x ksize %x entry %x\n",
+    verbose("kaddr %x ksize %x entry %x\n",
            kernBootStruct->kaddr, kernBootStruct->ksize,
            (unsigned int)kernelEntry);
-    printf("convmem %d extmem %d numIDEs %d\n",
+    verbose("convmem %d extmem %d numIDEs %d\n",
            kernBootStruct->convmem, kernBootStruct->extmem,
            kernBootStruct->numIDEs);
-    printf("first_addr0 %x\n", kernBootStruct->first_addr0);
-    printf("bootString '%s' kernDev %x magicCookie %x graphicsMode %d\n",
+    verbose("first_addr0 %x\n", kernBootStruct->first_addr0);
+    verbose("bootString '%s' kernDev %x magicCookie %x graphicsMode %d\n",
            kernBootStruct->bootString, kernBootStruct->kernDev,
            kernBootStruct->magicCookie, kernBootStruct->graphicsMode);
-
-    /* boot2's boot() loads the system config (System.config/Instance0.table
-     * off the default device) once, before ever calling execKernel() --
-     * that is where the "Boot Drivers" key loadOtherConfigs() reads below
-     * comes from. This loader has no boot-arg "config=" parsing and no
-     * instance selection, so it always takes loadSystemConfig()'s own
-     * argument-less default path (which=0, size=0), same as an
-     * unconfigured real boot. Without this call kernBootStruct->config
-     * stays empty and loadOtherConfigs() finds nothing to load. */
-    printf("loadSystemConfig: %d\n", loadSystemConfig(0, 0));
 
     /* boot2 folds the config's "Kernel Flags" into the boot string
      * (boot.c); this loader appends them after its compiled-in default so
@@ -174,7 +181,7 @@ efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *systab)
                                       BOOT_STRING_LEN, arg, strlen(arg));
             }
         }
-        printf("bootString '%s'\n", kernBootStruct->bootString);
+        verbose("bootString '%s'\n", kernBootStruct->bootString);
     }
 
     /* boot2/boot.c decides on the Boot Graphics panel once the config
@@ -198,7 +205,7 @@ efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *systab)
                    "unable to load boot drivers.\n");
         } else {
             loadOtherConfigs(0);
-            printf("boot drivers linked: %d\n",
+            verbose("boot drivers linked: %d\n",
                    kernBootStruct->numBootDrivers);
         }
     }
@@ -225,8 +232,20 @@ efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *systab)
     }
     if (wantSplash)
         setMode(GRAPHICS_MODE);
-    message("Starting Rhapsody", 0);
+    message("Starting OPENSTEP", 0);
 
+    /* The disk image is never changed by this compatibility fix. */
+    {
+        extern int openstep_fix_pic(unsigned char *, unsigned int);
+        int pic = openstep_fix_pic((unsigned char *)kernBootStruct->kaddr,
+                                   kernBootStruct->ksize);
+        verbose("OPENSTEP PIC fix: %s\n", pic == 1 ? "applied in RAM" :
+               pic == 2 ? "already present" : "unrecognized kernel; not applied");
+    }
+    {
+        extern void openstep_prepare_reboot(unsigned char *, unsigned int);
+        openstep_prepare_reboot((unsigned char *)kernBootStruct->kaddr, kernBootStruct->ksize);
+    }
     removeLinkEditSegment((struct mach_header *)kernBootStruct->kaddr);
     clearActivityIndicator();
     efi_exit_and_start((unsigned int)kernelEntry);

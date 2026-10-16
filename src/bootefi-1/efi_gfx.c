@@ -14,7 +14,7 @@
 #include "efi_gfx.h"
 
 #define DRIVER_PRIVATE
-#include <bsd/dev/i386/ohlfs12.h>  /* ohlfs12[96][CHAR_H], CHAR_W, CHAR_H */
+#include "../kernel-7/bsd/dev/i386/ohlfs12.h"  /* bitmap font only */
 #undef DRIVER_PRIVATE
 
 extern void efi_vga_set_mode12(void);
@@ -47,7 +47,7 @@ extern void efi_vga_set_mode12(void);
 #define TAB_SIZE    8
 
 /* mach_title in src/kernel-7/bsd/dev/i386/kmDevice.m. */
-static const char title[] = "Rhapsody Operating System";
+static const char title[] = "OPENSTEP 4.2 UEFI Boot";
 
 static int active;
 static int row, col;

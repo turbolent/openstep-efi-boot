@@ -1,0 +1,131 @@
+/*
+ * Copyright (c) 1992 NeXT Computer, Inc.
+ *
+ * Intel386 Family:	Floating Point unit.
+ *
+ * HISTORY
+ *
+ * 5 October 1992 David E. Bohman at NeXT
+ *	Added names to previously unamed fields in the mantissa.
+ *
+ * 5 April 1992 David E. Bohman at NeXT
+ *	Created.
+ */
+
+/*
+ * Data register.
+ */
+
+typedef struct fp_data_reg {
+    unsigned short		mant;
+    unsigned short		mant1	:16,
+				mant2	:16,
+				mant3	:16;
+    unsigned short		exp	:15,
+			    	sign	:1;
+} fp_data_reg_t;
+
+/*
+ * Data register stack.
+ */
+
+typedef struct fp_stack {
+    fp_data_reg_t		ST[8];
+} fp_stack_t;
+
+/*
+ * Register stack tag word.
+ */
+
+typedef struct fp_tag {
+    unsigned short		tag0	:2,
+    				tag1	:2,
+				tag2	:2,
+				tag3	:2,
+    				tag4	:2,
+				tag5	:2,
+				tag6	:2,
+				tag7	:2;
+#define FP_TAG_VALID		0
+#define FP_TAG_ZERO		1
+#define FP_TAG_SPEC		2
+#define FP_TAG_EMPTY		3
+} fp_tag_t;
+
+/*
+ * Status word.
+ */
+
+typedef struct fp_status {
+    unsigned short		invalid	:1,
+    				denorm	:1,
+				zdiv	:1,
+				ovrfl	:1,
+				undfl	:1,
+				precis	:1,
+				stkflt	:1,
+				errsumm	:1,
+				c0	:1,
+				c1	:1,
+				c2	:1,
+				tos	:3,
+				c3	:1,
+				busy	:1;
+} fp_status_t;
+
+/*
+ * Control word.
+ */
+
+typedef struct fp_control {
+    unsigned short		invalid	:1,
+    				denorm	:1,
+				zdiv	:1,
+				ovrfl	:1,
+				undfl	:1,
+				precis	:1,
+					:2,
+				pc	:2,
+#define FP_PREC_24B		0
+#define	FP_PREC_53B		2
+#define FP_PREC_64B		3
+				rc	:2,
+#define FP_RND_NEAR		0
+#define FP_RND_DOWN		1
+#define FP_RND_UP		2
+#define FP_CHOP			3
+				/*inf*/	:1,
+					:3;
+} fp_control_t;
+
+#import <architecture/i386/sel.h>
+
+/*
+ * Floating point 'environment'
+ * used by FSTENV/FLDENV instructions.
+ */
+
+typedef struct fp_env {
+    fp_control_t		control;
+    unsigned short			:16;
+    fp_status_t			status;
+    unsigned short			:16;
+    fp_tag_t			tag;
+    unsigned short			:16;
+    unsigned int		ip;
+    sel_t			cs;
+    unsigned short		opcode;
+    unsigned int		dp;
+    sel_t			ds;
+    unsigned short			:16;
+} fp_env_t;
+
+/*
+ * Floating point state
+ * used by FSAVE/FRSTOR instructions.
+ */
+ 
+typedef struct fp_state {
+    fp_env_t			environ;
+    fp_stack_t			stack;
+} fp_state_t;

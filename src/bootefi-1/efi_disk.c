@@ -1,3 +1,4 @@
+#include "loader_diagnostics.h"
 /* BIOS-layer backend for boot-2's disk.c, over EFI_BLOCK_IO_PROTOCOL.
  * disk.c is compiled unmodified; this file supplies only the symbols its
  * Biosread() and devopen()/read_label() call out to: ebiosread, biosread,
@@ -7,6 +8,7 @@
 #include "efi.h"
 #include "efi_disk_select.h"
 #include "efi_sector.h"
+#include "efi_block_read.h"
 
 #define BPS             512
 #define MAX_DISKS       8
@@ -36,8 +38,7 @@ static int read_cd_sectors(EFI_BLOCK_IO_PROTOCOL *bio, UINT64 secno,
     efi_sector_span(CD_BLOCK, secno, nsecs, &first, &nblocks, &skip);
     if ((UINTN)nblocks * CD_BLOCK > sizeof(bounce))
         return -1;
-    if (EFI_ERROR(bio->ReadBlocks(bio, bio->Media->MediaId, first,
-                                  (UINTN)nblocks * CD_BLOCK, bounce)))
+    if (EFI_ERROR(efi_block_read(bio, first, (UINTN)nblocks * CD_BLOCK, bounce)))
         return -1;
     memcpy(dst, bounce + skip, (UINTN)nsecs * BPS);
     return 0;
@@ -62,9 +63,9 @@ static int looks_like_rhapsody(EFI_BLOCK_IO_PROTOCOL *bio)
         if (read_cd_sectors(bio, efi_cd_label_sector(CD_BLOCK), 1, sector))
             return 0;
     } else if (bio->Media->BlockSize != BPS ||
-               EFI_ERROR(bio->ReadBlocks(bio, bio->Media->MediaId, 0,
+               EFI_ERROR(efi_block_read(bio, 0,
                                          sizeof(sector), sector)) ||
-               EFI_ERROR(bio->ReadBlocks(bio, bio->Media->MediaId,
+               EFI_ERROR(efi_block_read(bio,
                                          efi_label_lba(sector),
                                          sizeof(sector), sector)))
         return 0;
@@ -140,10 +141,10 @@ int efi_disk_init(void)
 
     rhapsody_idx = boot_idx >= 0 ? boot_idx : first_idx;
     if (boot_idx >= 0) {
-        printf("rhapsody disk: handle %d selected for biosdev 0x80 "
+        if (OPENSTEP_DIAGNOSTICS) printf("rhapsody disk: handle %d selected for biosdev 0x80 "
                "(the disk this loader was read from)\n", boot_idx);
     } else if (first_idx >= 0) {
-        printf("rhapsody disk: handle %d selected for biosdev 0x80 "
+        if (OPENSTEP_DIAGNOSTICS) printf("rhapsody disk: handle %d selected for biosdev 0x80 "
                "(first labelled disk)\n", first_idx);
         if (nmatches > 1)
             printf("warning: %d handles matched the Rhapsody disk label; "
@@ -185,8 +186,7 @@ int ebiosread(int biosdev, int secno, int nsecs)
     if (bio->Media->BlockSize != BPS)
         return -1;                      /* 4Kn media is out of scope */
     lba = (UINT64)secno;
-    if (EFI_ERROR(bio->ReadBlocks(bio, bio->Media->MediaId, lba, bytes,
-                                  biosbuf)))
+    if (EFI_ERROR(efi_block_read(bio, lba, bytes, biosbuf)))
         return -1;
     return 0;
 }
