@@ -27,8 +27,8 @@ Use `make clean` to remove build products.
 
 Build options:
 
-- `BOOT_STRING="rootdev=hd0a -v -s"` — default kernel flags.
-  `-s` selects the single-user shell.
+- `BOOT_STRING="rootdev=hd0a -v"` — default kernel flags.
+  Add `-s` to select the single-user shell.
   Choose the root device for your installation.
 - `DIAGNOSTICS=1` — show loader diagnostics.
   Disabled by default; independent of the kernel's `-v` flag.

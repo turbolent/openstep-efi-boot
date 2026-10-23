@@ -6,7 +6,7 @@ SHELL := /bin/sh
 CC = clang
 LD = lld-link
 PYTHON ?= python
-BOOT_STRING ?= rootdev=hd0a -v -s
+BOOT_STRING ?= rootdev=hd0a -v
 DIAGNOSTICS ?= 0
 PAUSE ?= 0
 
